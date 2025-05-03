@@ -1,4 +1,4 @@
 #!/bin/sh
-echo "*** starting RemoteGPIO ***"
+echo "*** starting GenAutoCurrent ***"
 exec 2>&1
-exec /data/RemoteGPIO/rgpio_monitor
+exec /data/GenAutoCurrent/auto_current.py
