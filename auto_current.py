@@ -2,11 +2,15 @@
 
 import dbus
 import logging
+import os
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 
 # Logging setup
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+LOG_FILE = "/data/GenAutoCurrent/log"
+os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.info("Starting Generator Derating Monitor with file logging.")
 
 # D-Bus service names and paths
 VEBUS_SERVICE_BASE = "com.victronenergy.vebus"
@@ -46,254 +50,254 @@ DEFAULT_GENERATOR_TEMP_F = 180.0
 DEFAULT_OUTDOOR_TEMP_F = 77.0
 
 class GeneratorDeratingMonitor:
-    def __init__(self):
-        self.bus = dbus.SystemBus()
-        self.vebus_service = None
-        self.outdoor_temp_service_name = None
-        self.generator_temp_service_name = None
-        self.gps_service_name = None
-        self.transfer_switch_service = None
-        self.settings_service_name = SETTINGS_SERVICE_NAME
-        self.gen_auto_current_service = None
-        self.gen_auto_current_state = None
+    def __init__(self):
+        self.bus = dbus.SystemBus()
+        self.vebus_service = None
+        self.outdoor_temp_service_name = None
+        self.generator_temp_service_name = None
+        self.gps_service_name = None
+        self.transfer_switch_service = None
+        self.settings_service_name = SETTINGS_SERVICE_NAME
+        self.gen_auto_current_service = None
+        self.gen_auto_current_state = None
 
-        self.outdoor_temp_fahrenheit = DEFAULT_OUTDOOR_TEMP_F
-        self.altitude_feet = DEFAULT_ALTITUDE_FEET
-        self.generator_temp_fahrenheit = DEFAULT_GENERATOR_TEMP_F
+        self.outdoor_temp_fahrenheit = DEFAULT_OUTDOOR_TEMP_F
+        self.altitude_feet = DEFAULT_ALTITUDE_FEET
+        self.generator_temp_fahrenheit = DEFAULT_GENERATOR_TEMP_F
 
-        GLib.timeout_add_seconds(2, self._delayed_initialization)
+        GLib.timeout_add_seconds(2, self._delayed_initialization)
 
-    def _delayed_initialization(self):
-        self._find_initial_services()
-        self._read_initial_values()
-        GLib.timeout_add(5000, self._periodic_monitoring)
-        return GLib.SOURCE_REMOVE
+    def _delayed_initialization(self):
+        self._find_initial_services()
+        self._read_initial_values()
+        GLib.timeout_add(5000, self._periodic_monitoring)
+        return GLib.SOURCE_REMOVE
 
-    def _find_initial_services(self):
-        self.vebus_service = self._find_service(VEBUS_SERVICE_BASE)
-        self._find_outdoor_temperature_service()
-        self._find_generator_temperature_service()
-        self._find_gps_service()
-        self._find_transfer_switch_input()
-        self._find_gen_auto_current_input()
+    def _find_initial_services(self):
+        self.vebus_service = self._find_service(VEBUS_SERVICE_BASE)
+        self._find_outdoor_temperature_service()
+        self._find_generator_temperature_service()
+        self._find_gps_service()
+        self._find_transfer_switch_input()
+        self._find_gen_auto_current_input()
 
-        logging.info(f"VE.Bus service: {self.vebus_service}")
-        logging.info(f"Outdoor temp service: {self.outdoor_temp_service_name}")
-        logging.info(f"Generator temp service: {self.generator_temp_service_name}")
-        logging.info(f"GPS service: {self.gps_service_name}")
-        logging.info(f"Transfer switch service: {self.transfer_switch_service}")
-        logging.info(f"'Gen Auto Current' service: {self.gen_auto_current_service}")
+        logging.info(f"VE.Bus service: {self.vebus_service}")
+        logging.info(f"Outdoor temp service: {self.outdoor_temp_service_name}")
+        logging.info(f"Generator temp service: {self.generator_temp_service_name}")
+        logging.info(f"GPS service: {self.gps_service_name}")
+        logging.info(f"Transfer switch service: {self.transfer_switch_service}")
+        logging.info(f"'Gen Auto Current' service: {self.gen_auto_current_service}")
 
-    def _read_initial_values(self):
-        self._update_outdoor_temperature()
-        self._update_altitude()
-        self._update_generator_temperature()
-        self._update_gen_auto_current_state()
+    def _read_initial_values(self):
+        self._update_outdoor_temperature()
+        self._update_altitude()
+        self._update_generator_temperature()
+        self._update_gen_auto_current_state()
 
-    def _find_service(self, service_base):
-        services = [name for name in self.bus.list_names() if name.startswith(service_base)]
-        return services[0] if services else None
+    def _find_service(self, service_base):
+        services = [name for name in self.bus.list_names() if name.startswith(service_base)]
+        return services[0] if services else None
 
-    def _get_dbus_value(self, service_name, path):
-        try:
-            obj = self.bus.get_object(service_name, path)
-            interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
-            return interface.GetValue()
-        except Exception as e:
-            logging.error(f"Error getting value from {service_name}{path}: {e}")
-            return None
+    def _get_dbus_value(self, service_name, path):
+        try:
+            obj = self.bus.get_object(service_name, path)
+            interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
+            return interface.GetValue()
+        except Exception as e:
+            logging.error(f"Error getting value from {service_name}{path}: {e}")
+            return None
 
-    def _set_dbus_value(self, service_name, path, value):
-        try:
-            obj = self.bus.get_object(service_name, path)
-            interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
-            interface.SetValue(dbus.Double(value))
-            logging.info(f"Set {service_name}{path} to {value}")
-        except Exception as e:
-            logging.error(f"Error setting value for {service_name}{path} to {value}: {e}")
+    def _set_dbus_value(self, service_name, path, value):
+        try:
+            obj = self.bus.get_object(service_name, path)
+            interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
+            interface.SetValue(dbus.Double(value))
+            logging.info(f"Set {service_name}{path} to {value}")
+        except Exception as e:
+            logging.error(f"Error setting value for {service_name}{path} to {value}: {e}")
 
-    def _find_outdoor_temperature_service(self, retries=3, delay=1):
-        temperature_services = [name for name in self.bus.list_names() if name.startswith(TEMPERATURE_SERVICE_BASE)]
-        logging.info(f"Found temperature services (attempt {retries}): {temperature_services}")
-        for service_name in temperature_services:
-            try:
-                obj = self.bus.get_object(service_name, CUSTOM_NAME_PATH)
-                interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
-                custom_name = interface.GetValue()
-                logging.info(f"Checking service: {service_name}, CustomName: '{custom_name}'")
-                if custom_name and "Outdoor" in custom_name:
-                    logging.info(f"Found potential outdoor temperature sensor: {service_name} (CustomName: {custom_name})")
-                    self.outdoor_temp_service_name = service_name
-                    return
-            except Exception as e:
-                logging.debug(f"Error checking CustomName for {service_name}: {e}")
-        if retries > 0 and not self.outdoor_temp_service_name:
-            logging.warning(f"Could not find outdoor temperature sensor. Retrying in {delay} second(s)...")
-            import time
-            time.sleep(delay)
-            self._find_outdoor_temperature_service(retries - 1, delay)
-        elif not self.outdoor_temp_service_name:
-            logging.warning("Could not automatically find an outdoor temperature sensor with 'Outdoor' in CustomName after multiple retries.")
+    def _find_outdoor_temperature_service(self, retries=3, delay=1):
+        temperature_services = [name for name in self.bus.list_names() if name.startswith(TEMPERATURE_SERVICE_BASE)]
+        logging.info(f"Found temperature services (attempt {retries}): {temperature_services}")
+        for service_name in temperature_services:
+            try:
+                obj = self.bus.get_object(service_name, CUSTOM_NAME_PATH)
+                interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
+                custom_name = interface.GetValue()
+                logging.info(f"Checking service: {service_name}, CustomName: '{custom_name}'")
+                if custom_name and "Outdoor" in custom_name:
+                    logging.info(f"Found potential outdoor temperature sensor: {service_name} (CustomName: {custom_name})")
+                    self.outdoor_temp_service_name = service_name
+                    return
+            except Exception as e:
+                logging.debug(f"Error checking CustomName for {service_name}: {e}")
+        if retries > 0 and not self.outdoor_temp_service_name:
+            logging.warning(f"Could not find outdoor temperature sensor. Retrying in {delay} second(s)...")
+            import time
+            time.sleep(delay)
+            self._find_outdoor_temperature_service(retries - 1, delay)
+        elif not self.outdoor_temp_service_name:
+            logging.warning("Could not automatically find an outdoor temperature sensor with 'Outdoor' in CustomName after multiple retries.")
 
-    def _find_generator_temperature_service(self):
-        temperature_services = [name for name in self.bus.list_names() if name.startswith(TEMPERATURE_SERVICE_BASE)]
-        for service_name in temperature_services:
-            try:
-                obj = self.bus.get_object(service_name, CUSTOM_NAME_PATH)
-                interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
-                custom_name = interface.GetValue()
-                if custom_name and any(keyword in custom_name for keyword in ["gen", "Gen", "generator", "Generator"]):
-                    logging.info(f"Found potential generator temperature sensor: {service_name} (CustomName: {custom_name})")
-                    self.generator_temp_service_name = service_name
-                    return
-            except Exception as e:
-                logging.debug(f"Error checking CustomName for {service_name}: {e}")
+    def _find_generator_temperature_service(self):
+        temperature_services = [name for name in self.bus.list_names() if name.startswith(TEMPERATURE_SERVICE_BASE)]
+        for service_name in temperature_services:
+            try:
+                obj = self.bus.get_object(service_name, CUSTOM_NAME_PATH)
+                interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
+                custom_name = interface.GetValue()
+                if custom_name and any(keyword in custom_name for keyword in ["gen", "Gen", "generator", "Generator"]):
+                    logging.info(f"Found potential generator temperature sensor: {service_name} (CustomName: {custom_name})")
+                    self.generator_temp_service_name = service_name
+                    return
+            except Exception as e:
+                logging.debug(f"Error checking CustomName for {service_name}: {e}")
 
-            try:
-                obj = self.bus.get_object(service_name, PRODUCT_NAME_PATH)
-                interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
-                product_name = interface.GetValue()
-                if product_name and any(keyword in product_name for keyword in ["gen", "Gen", "generator", "Generator"]):
-                    logging.info(f"Found potential generator temperature sensor: {service_name} (ProductName: {product_name})")
-                    self.generator_temp_service_name = service_name
-                    return
-            except Exception as e:
-                logging.debug(f"Error checking ProductName for {service_name}: {e}")
+            try:
+                obj = self.bus.get_object(service_name, PRODUCT_NAME_PATH)
+                interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
+                product_name = interface.GetValue()
+                if product_name and any(keyword in product_name for keyword in ["gen", "Gen", "generator", "Generator"]):
+                    logging.info(f"Found potential generator temperature sensor: {service_name} (ProductName: {product_name})")
+                    self.generator_temp_service_name = service_name
+                    return
+            except Exception as e:
+                logging.debug(f"Error checking ProductName for {service_name}: {e}")
 
-    def _find_gps_service(self):
-        self.gps_service_name = self._find_service(GPS_SERVICE_BASE)
-        logging.info(f"GPS service found: {self.gps_service_name}")
+    def _find_gps_service(self):
+        self.gps_service_name = self._find_service(GPS_SERVICE_BASE)
+        logging.info(f"GPS service found: {self.gps_service_name}")
 
-    def _find_transfer_switch_input(self):
-        service_names = [name for name in self.bus.list_names() if name.startswith(DIGITAL_INPUT_SERVICE_BASE)]
-        for service_name in service_names:
-            try:
-                obj = self.bus.get_object(service_name, PRODUCT_NAME_PATH)
-                interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
-                product_name = interface.GetValue()
-                if product_name and ("Transfer Switch" in product_name or "transfer switch" in product_name):
-                    logging.info(f"Found External AC Transfer Switch input: {service_name} (ProductName: '{product_name}')")
-                    self.transfer_switch_service = service_name
-                    return
-            except Exception as e:
-                logging.debug(f"Error checking product name for {service_name}: {e}")
-        logging.warning("Could not find a digital input with 'Transfer Switch' in its product name.")
+    def _find_transfer_switch_input(self):
+        service_names = [name for name in self.bus.list_names() if name.startswith(DIGITAL_INPUT_SERVICE_BASE)]
+        for service_name in service_names:
+            try:
+                obj = self.bus.get_object(service_name, PRODUCT_NAME_PATH)
+                interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
+                product_name = interface.GetValue()
+                if product_name and ("Transfer Switch" in product_name or "transfer switch" in product_name):
+                    logging.info(f"Found External AC Transfer Switch input: {service_name} (ProductName: '{product_name}')")
+                    self.transfer_switch_service = service_name
+                    return
+except Exception as e:
+                logging.debug(f"Error checking product name for {service_name}: {e}")
+        logging.warning("Could not find a digital input with 'Transfer Switch' in its product name.")
 
-    def _find_gen_auto_current_input(self):
-        service_names = [name for name in self.bus.list_names() if name.startswith(DIGITAL_INPUT_SERVICE_BASE)]
-        for service_name in service_names:
-            try:
-                obj = self.bus.get_object(service_name, PRODUCT_NAME_PATH)
-                interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
-                product_name = interface.GetValue()
-                if product_name and ("Gen Auto Current" in product_name or "gen auto current" in product_name):
-                    logging.info(f"Found 'Gen Auto Current' input: {service_name} (ProductName: '{product_name}')")
-                    self.gen_auto_current_service = service_name
-                    return
-            except Exception as e:
-                logging.debug(f"Error checking product name for {service_name}: {e}")
-        logging.warning("Could not find a digital input with 'Gen Auto Current' in its product name.")
+    def _find_gen_auto_current_input(self):
+        service_names = [name for name in self.bus.list_names() if name.startswith(DIGITAL_INPUT_SERVICE_BASE)]
+        for service_name in service_names:
+            try:
+                obj = self.bus.get_object(service_name, PRODUCT_NAME_PATH)
+                interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
+                product_name = interface.GetValue()
+                if product_name and ("Gen Auto Current" in product_name or "gen auto current" in product_name):
+                    logging.info(f"Found 'Gen Auto Current' input: {service_name} (ProductName: '{product_name}')")
+                    self.gen_auto_current_service = service_name
+                    return
+            except Exception as e:
+                logging.debug(f"Error checking product name for {service_name}: {e}")
+        logging.warning("Could not find a digital input with 'Gen Auto Current' in its product name.")
 
-    def _update_outdoor_temperature(self):
-        if self.outdoor_temp_service_name:
-            temp_celsius = self._get_dbus_value(self.outdoor_temp_service_name, TEMPERATURE_PATH)
-            if temp_celsius is not None:
-                self.outdoor_temp_fahrenheit = (temp_celsius * 9/5) + 32
-                logging.debug(f"Updated outdoor temperature: {self.outdoor_temp_fahrenheit:.2f} F")
+    def _update_outdoor_temperature(self):
+        if self.outdoor_temp_service_name:
+            temp_celsius = self._get_dbus_value(self.outdoor_temp_service_name, TEMPERATURE_PATH)
+            if temp_celsius is not None:
+                self.outdoor_temp_fahrenheit = (temp_celsius * 9/5) + 32
+                logging.debug(f"Updated outdoor temperature: {self.outdoor_temp_fahrenheit:.2f} F")
 
-    def _update_altitude(self):
-        if self.gps_service_name:
-            altitude_meters = self._get_dbus_value(self.gps_service_name, ALTITUDE_PATH)
-            if altitude_meters is not None:
-                self.altitude_feet = altitude_meters * 3.28084
-                logging.debug(f"Updated altitude: {self.altitude_feet:.2f} feet")
+    def _update_altitude(self):
+        if self.gps_service_name:
+            altitude_meters = self._get_dbus_value(self.gps_service_name, ALTITUDE_PATH)
+            if altitude_meters is not None:
+                self.altitude_feet = altitude_meters * 3.28084
+                logging.debug(f"Updated altitude: {self.altitude_feet:.2f} feet")
 
-    def _update_generator_temperature(self):
-        if self.generator_temp_service_name:
-            temp_celsius = self._get_dbus_value(self.generator_temp_service_name, TEMPERATURE_PATH)
-            if temp_celsius is not None:
-                self.generator_temp_fahrenheit = (temp_celsius * 9/5) + 32
-                logging.debug(f"Updated generator temperature: {self.generator_temp_fahrenheit:.2f} F")
+    def _update_generator_temperature(self):
+        if self.generator_temp_service_name:
+            temp_celsius = self._get_dbus_value(self.generator_temp_service_name, TEMPERATURE_PATH)
+            if temp_celsius is not None:
+                self.generator_temp_fahrenheit = (temp_celsius * 9/5) + 32
+                logging.debug(f"Updated generator temperature: {self.generator_temp_fahrenheit:.2f} F")
 
-    def _update_gen_auto_current_state(self):
-        if self.gen_auto_current_service:
-            state = self._get_dbus_value(self.gen_auto_current_service, STATE_PATH)
-            if state is not None:
-                self.gen_auto_current_state = state
-                logging.debug(f"Updated 'Gen Auto Current' state: {self.gen_auto_current_state}")
+    def _update_gen_auto_current_state(self):
+        if self.gen_auto_current_service:
+            state = self._get_dbus_value(self.gen_auto_current_service, STATE_PATH)
+            if state is not None:
+                self.gen_auto_current_state = state
+                logging.debug(f"Updated 'Gen Auto Current' state: {self.gen_auto_current_state}")
 
-    def _is_generator_running(self):
-        if self.transfer_switch_service:
-            state = self._get_dbus_value(self.transfer_switch_service, STATE_PATH)
-            return state == GENERATOR_ON_VALUE
-        return False
+    def _is_generator_running(self):
+        if self.transfer_switch_service:
+            state = self._get_dbus_value(self.transfer_switch_service, STATE_PATH)
+            return state == GENERATOR_ON_VALUE
+        return False
 
-    def calculate_derating_factor(self, temperature_fahrenheit, altitude_feet, generator_temperature_fahrenheit):
-        temperature_multiplier = 1.0
-        altitude_multiplier = 1.0
-        generator_temp_multiplier = 1.0
+    def calculate_derating_factor(self, temperature_fahrenheit, altitude_feet, generator_temperature_fahrenheit):
+        temperature_multiplier = 1.0
+        altitude_multiplier = 1.0
+        generator_temp_multiplier = 1.0
 
-        if temperature_fahrenheit is not None:
-            if temperature_fahrenheit > BASE_TEMPERATURE_THRESHOLD_F:
-                temperature_multiplier = 1.0 - ((temperature_fahrenheit - BASE_TEMPERATURE_THRESHOLD_F) * TEMP_COEFFICIENT)
-                temperature_multiplier = max(0.0, temperature_multiplier)
+        if temperature_fahrenheit is not None:
+            if temperature_fahrenheit > BASE_TEMPERATURE_THRESHOLD_F:
+                temperature_multiplier = 1.0 - ((temperature_fahrenheit - BASE_TEMPERATURE_THRESHOLD_F) * TEMP_COEFFICIENT)
+                temperature_multiplier = max(0.0, temperature_multiplier)
 
-        if altitude_feet is not None:
-            altitude_multiplier = 1.0 - (altitude_feet * ALTITUDE_COEFFICIENT)
-            altitude_multiplier = max(0.0, altitude_multiplier)
+        if altitude_feet is not None:
+            altitude_multiplier = 1.0 - (altitude_feet * ALTITUDE_COEFFICIENT)
+            altitude_multiplier = max(0.0, altitude_multiplier)
 
-        if generator_temperature_fahrenheit is not None:
-            if generator_temperature_fahrenheit >= HIGH_GENTEMP_THRESHOLD_F:
-                generator_temp_multiplier = HIGH_GENTEMP_REDUCTION
-            elif generator_temperature_fahrenheit >= MEDIUM_GENTEMP_THRESHOLD_F:
-                generator_temp_multiplier = MEDIUM_GENTEMP_REDUCTION
+        if generator_temperature_fahrenheit is not None:
+            if generator_temperature_fahrenheit >= HIGH_GENTEMP_THRESHOLD_F:
+                generator_temp_multiplier = HIGH_GENTEMP_REDUCTION
+            elif generator_temperature_fahrenheit >= MEDIUM_GENTEMP_THRESHOLD_F:
+                generator_temp_multiplier = MEDIUM_GENTEMP_REDUCTION
 
-        return temperature_multiplier * altitude_multiplier * generator_temp_multiplier * OUTPUT_BUFFER
+        return temperature_multiplier * altitude_multiplier * generator_temp_multiplier * OUTPUT_BUFFER
 
-    def _perform_derating(self):
-        if self.outdoor_temp_fahrenheit is not None and self.altitude_feet is not None and self.generator_temp_fahrenheit is not None:
-            derating_factor = self.calculate_derating_factor(
-                self.outdoor_temp_fahrenheit, self.altitude_feet, self.generator_temp_fahrenheit
-            )
-            derated_output_amps = BASE_GENERATOR_OUTPUT_AMPS * derating_factor
-            rounded_output = round(derated_output_amps, 1)
+    def _perform_derating(self):
+        if self.outdoor_temp_fahrenheit is not None and self.altitude_feet is not None and self.generator_temp_fahrenheit is not None:
+            derating_factor = self.calculate_derating_factor(
+                self.outdoor_temp_fahrenheit, self.altitude_feet, self.generator_temp_fahrenheit
+            )
+            derated_output_amps = BASE_GENERATOR_OUTPUT_AMPS * derating_factor
+            rounded_output = round(derated_output_amps, 1)
 
-            # Set the AC Active Input Current Limit on VE.Bus when generator is running
-            if self.vebus_service and self._is_generator_running():
-                self._set_dbus_value(self.vebus_service, AC_ACTIVE_INPUT_CURRENT_LIMIT_PATH, rounded_output)
-                logging.info(f"Generator running, set VE.Bus AC Active Input Current Limit: {rounded_output:.1f} Amps")
-            elif self.vebus_service:
-                logging.info("Generator not running, VE.Bus AC Active Input Current Limit not actively adjusted by derating.")
+            # Set the AC Active Input Current Limit on VE.Bus when generator is running
+            if self.vebus_service and self._is_generator_running():
+                self._set_dbus_value(self.vebus_service, AC_ACTIVE_INPUT_CURRENT_LIMIT_PATH, rounded_output)
+                logging.info(f"Generator running, set VE.Bus AC Active Input Current Limit: {rounded_output:.1f} Amps")
+            elif self.vebus_service:
+                logging.info("Generator not running, VE.Bus AC Active Input Current Limit not actively adjusted by derating.")
 
-            # Store the derated current limit in the settings path for the transfer switch
-            self._set_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH, rounded_output)
-            logging.info(f"Set Transfer Switch Generator Current Limit in Settings: {rounded_output:.1f} Amps")
+            # Store the derated current limit in the settings path for the transfer switch
+            self._set_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH, rounded_output)
+            logging.info(f"Set Transfer Switch Generator Current Limit in Settings: {rounded_output:.1f} Amps")
 
-            # We still log the calculated derated output for informational purposes
-            logging.info(f"Calculated Derated Generator Output: {rounded_output:.1f} Amps")
+            # We still log the calculated derated output for informational purposes
+            logging.info(f"Calculated Derated Generator Output: {rounded_output:.1f} Amps")
 
-        else:
-            logging.debug("Not all temperature or altitude data available for derating.")
+        else:
+            logging.debug("Not all temperature or altitude data available for derating.")
 
-    def _periodic_monitoring(self):
-        self._update_outdoor_temperature()
-        self._update_altitude()
-        self._update_generator_temperature()
-        self._update_gen_auto_current_state()
+    def _periodic_monitoring(self):
+        self._update_outdoor_temperature()
+        self._update_altitude()
+        self._update_generator_temperature()
+        self._update_gen_auto_current_state()
 
-        # Perform derating only if Gen Auto Current is on (state 3)
-        if self.gen_auto_current_state == 3:
-            self._perform_derating()
-        else:
-            logging.info("Gen Auto Current is off, skipping derating calculations.")
+        # Perform derating only if Gen Auto Current is on (state 3)
+        if self.gen_auto_current_state == 3:
+            self._perform_derating()
+        else:
+            logging.info("Gen Auto Current is off, skipping derating calculations.")
 
-        return True
+        return True
 
 def main():
-    DBusGMainLoop(set_as_default=True)
-    GeneratorDeratingMonitor()
-    mainloop = GLib.MainLoop()
-    mainloop.run()
+    DBusGMainLoop(set_as_default=True)
+    GeneratorDeratingMonitor()
+    mainloop = GLib.MainLoop()
+    mainloop.run()
 
 if __name__ == "__main__":
-    main()
+    main()
