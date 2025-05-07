@@ -179,7 +179,7 @@ class GeneratorDeratingMonitor:
                     logging.info(f"Found External AC Transfer Switch input: {service_name} (ProductName: '{product_name}')")
                     self.transfer_switch_service = service_name
                     return
-except Exception as e:
+            except Exception as e:
                 logging.debug(f"Error checking product name for {service_name}: {e}")
         logging.warning("Could not find a digital input with 'Transfer Switch' in its product name.")
 
