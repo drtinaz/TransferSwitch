@@ -61,10 +61,11 @@ class GeneratorDeratingMonitor:
         self.settings_service_name = SETTINGS_SERVICE_NAME
         self.gen_auto_current_service = None
         self.gen_auto_current_state = None
-
-        self.outdoor_temp_fahrenheit = DEFAULT_OUTDOOR_TEMP_F
-        self.altitude_feet = DEFAULT_ALTITUDE_FEET
-        self.generator_temp_fahrenheit = DEFAULT_GENERATOR_TEMP_F
+        self.previous_gen_auto_current_state = None
+        self.initial_derated_output_logged = False
+        self.initial_altitude = None
+        self.initial_outdoor_temp = None
+        self.initial_generator_temp = None
 
         GLib.timeout_add_seconds(2, self._delayed_initialization)
 
@@ -90,10 +91,11 @@ class GeneratorDeratingMonitor:
         logging.info(f"'Gen Auto Current' service: {self.gen_auto_current_service}")
 
     def _read_initial_values(self):
-        self._update_outdoor_temperature()
-        self._update_altitude()
-        self._update_generator_temperature()
+        self._update_outdoor_temperature(log_update=False, log_initial=True)
+        self._update_altitude(log_update=False, log_initial=True)
+        self._update_generator_temperature(log_update=False, log_initial=True)
         self._update_gen_auto_current_state()
+        self.previous_gen_auto_current_state = self.gen_auto_current_state
 
     def _find_service(self, service_base):
         services = [name for name in self.bus.list_names() if name.startswith(service_base)]
@@ -199,33 +201,54 @@ class GeneratorDeratingMonitor:
                 logging.debug(f"Error checking product name for {service_name}: {e}")
         logging.warning("Could not find a digital input with 'Gen Auto Current' in its product name.")
 
-    def _update_outdoor_temperature(self):
+    def _update_outdoor_temperature(self, log_update=True, log_initial=False):
         if self.outdoor_temp_service_name:
             temp_celsius = self._get_dbus_value(self.outdoor_temp_service_name, TEMPERATURE_PATH)
             if temp_celsius is not None:
                 self.outdoor_temp_fahrenheit = (temp_celsius * 9/5) + 32
-                logging.debug(f"Updated outdoor temperature: {self.outdoor_temp_fahrenheit:.2f} F")
+                if log_initial and self.initial_outdoor_temp is None:
+                    self.initial_outdoor_temp = self.outdoor_temp_fahrenheit
+                    logging.info(f"Initial Outdoor Temperature: {self.initial_outdoor_temp:.2f} F")
+                elif log_update:
+                    logging.debug(f"Updated outdoor temperature: {self.outdoor_temp_fahrenheit:.2f} F")
 
-    def _update_altitude(self):
+    def _update_altitude(self, log_update=True, log_initial=False):
         if self.gps_service_name:
             altitude_meters = self._get_dbus_value(self.gps_service_name, ALTITUDE_PATH)
             if altitude_meters is not None:
                 self.altitude_feet = altitude_meters * 3.28084
-                logging.debug(f"Updated altitude: {self.altitude_feet:.2f} feet")
+                if log_initial and self.initial_altitude is None:
+                    self.initial_altitude = self.altitude_feet
+                    logging.info(f"Initial Altitude: {self.initial_altitude:.2f} feet")
+                elif log_update:
+                    logging.debug(f"Updated altitude: {self.altitude_feet:.2f} feet")
 
-    def _update_generator_temperature(self):
+    def _update_generator_temperature(self, log_update=True, log_initial=False):
         if self.generator_temp_service_name:
             temp_celsius = self._get_dbus_value(self.generator_temp_service_name, TEMPERATURE_PATH)
             if temp_celsius is not None:
                 self.generator_temp_fahrenheit = (temp_celsius * 9/5) + 32
-                logging.debug(f"Updated generator temperature: {self.generator_temp_fahrenheit:.2f} F")
+                if log_initial and self.initial_generator_temp is None:
+                    self.initial_generator_temp = self.generator_temp_fahrenheit
+                    logging.info(f"Initial Generator Temperature: {self.initial_generator_temp:.2f} F")
+                elif log_update and self.generator_temp_fahrenheit > 212.0:
+                    logging.debug(f"Generator temperature above threshold: {self.generator_temp_fahrenheit:.2f} F")
+                elif log_update:
+                    logging.debug(f"Generator temperature: {self.generator_temp_fahrenheit:.2f} F (below threshold)")
+            else:
+                logging.debug("Could not retrieve generator temperature from D-Bus.")
 
     def _update_gen_auto_current_state(self):
         if self.gen_auto_current_service:
             state = self._get_dbus_value(self.gen_auto_current_service, STATE_PATH)
             if state is not None:
-                self.gen_auto_current_state = state
-                logging.debug(f"Updated 'Gen Auto Current' state: {self.gen_auto_current_state}")
+                if state != self.previous_gen_auto_current_state:
+                    self.gen_auto_current_state = state
+                    logging.info(f"'Gen Auto Current' state changed to: {self.gen_auto_current_state}")
+                else:
+                    self.gen_auto_current_state = state
+            else:
+                logging.debug("Could not retrieve 'Gen Auto Current' state from D-Bus.")
 
     def _is_generator_running(self):
         if self.transfer_switch_service:
@@ -260,22 +283,23 @@ class GeneratorDeratingMonitor:
             derating_factor = self.calculate_derating_factor(
                 self.outdoor_temp_fahrenheit, self.altitude_feet, self.generator_temp_fahrenheit
             )
-            derated_output_amps = BASE_GENERATOR_OUTPUT_AMPS * derating_factor
             rounded_output = round(derated_output_amps, 1)
 
             # Set the AC Active Input Current Limit on VE.Bus when generator is running
             if self.vebus_service and self._is_generator_running():
                 self._set_dbus_value(self.vebus_service, AC_ACTIVE_INPUT_CURRENT_LIMIT_PATH, rounded_output)
-                logging.info(f"Generator running, set VE.Bus AC Active Input Current Limit: {rounded_output:.1f} Amps")
+                logging.debug(f"Generator running,set VE.Bus AC Active Input Current Limit: {rounded_output:.1f} Amps")
             elif self.vebus_service:
-                logging.info("Generator not running, VE.Bus AC Active Input Current Limit not actively adjusted by derating.")
+                logging.debug("Generator not running, VE.Bus AC Active Input Current Limit not actively adjusted by derating.")
 
             # Store the derated current limit in the settings path for the transfer switch
-            self._set_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH, rounded_output)
-            logging.info(f"Set Transfer Switch Generator Current Limit in Settings: {rounded_output:.1f} Amps")
-
-            # We still log the calculated derated output for informational purposes
-            logging.info(f"Calculated Derated Generator Output: {rounded_output:.1f} Amps")
+            if not self.initial_derated_output_logged:
+                self._set_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH, rounded_output)
+                logging.info(f"Initial Transfer Switch Generator Current Limit: {rounded_output:.1f} Amps")
+                logging.info(f"Initial Calculated Derated Generator Output: {rounded_output:.1f} Amps")
+                self.initial_derated_output_logged = True
+            else:
+                logging.debug(f"Calculated Derated Generator Output: {rounded_output:.1f} Amps (value might have changed)")
 
         else:
             logging.debug("Not all temperature or altitude data available for derating.")
@@ -289,8 +313,6 @@ class GeneratorDeratingMonitor:
         # Perform derating only if Gen Auto Current is on (state 3)
         if self.gen_auto_current_state == 3:
             self._perform_derating()
-        else:
-            logging.info("Gen Auto Current is off, skipping derating calculations.")
 
         return True
 
