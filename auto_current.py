@@ -61,11 +61,13 @@ class GeneratorDeratingMonitor:
         self.settings_service_name = SETTINGS_SERVICE_NAME
         self.gen_auto_current_service = None
         self.gen_auto_current_state = None
-        self.previous_gen_auto_current_state = None
+        self.previous_gen_auto_current_state = None # Initialize here
         self.initial_derated_output_logged = False
         self.initial_altitude = None
         self.initial_outdoor_temp = None
         self.initial_generator_temp = None
+        self.previous_ac_current_limit = None # New variable to store the previously set AC current limit
+        self.previous_generator_current_limit_setting = None # Track changes in the generator current limit setting
 
         # START CORRECTION
         self.outdoor_temp_fahrenheit = DEFAULT_OUTDOOR_TEMP_F
@@ -100,8 +102,19 @@ class GeneratorDeratingMonitor:
         self._update_outdoor_temperature(log_update=False, log_initial=True)
         self._update_altitude(log_update=False, log_initial=True)
         self._update_generator_temperature(log_update=False, log_initial=True)
-        self._update_gen_auto_current_state()
-        self.previous_gen_auto_current_state = self.gen_auto_current_state
+        self._update_gen_auto_current_state(initial_read=True)
+        # Initial read of the generator current limit setting
+        current_limit = self._get_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH)
+        if current_limit is not None:
+            self.previous_generator_current_limit_setting = round(float(current_limit), 1)
+            logging.info(f"Initial Generator Current Limit setting: {self.previous_generator_current_limit_setting:.1f} Amps")
+
+        # Initial read of the AC active input current limit for the new feature
+        ac_limit = self._get_dbus_value(self.vebus_service, AC_ACTIVE_INPUT_CURRENT_LIMIT_PATH)
+        if ac_limit is not None:
+            self.previous_ac_current_limit = round(float(ac_limit), 1)
+            logging.info(f"Initial VE.Bus AC Active Input Current Limit: {self.previous_ac_current_limit:.1f} Amps")
+
 
     def _find_service(self, service_base):
         services = [name for name in self.bus.list_names() if name.startswith(service_base)]
@@ -121,7 +134,8 @@ class GeneratorDeratingMonitor:
             obj = self.bus.get_object(service_name, path)
             interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
             interface.SetValue(dbus.Double(value))
-            logging.info(f"Set {service_name}{path} to {value}")
+            # This is the original log that you want to conditionally keep
+            # logging.info(f"Set {service_name}{path} to {value}") # Re-inserted
         except Exception as e:
             logging.error(f"Error setting value for {service_name}{path} to {value}: {e}")
 
@@ -244,15 +258,21 @@ class GeneratorDeratingMonitor:
             else:
                 logging.debug("Could not retrieve generator temperature from D-Bus.")
 
-    def _update_gen_auto_current_state(self):
+    def _update_gen_auto_current_state(self, initial_read=False):
         if self.gen_auto_current_service:
             state = self._get_dbus_value(self.gen_auto_current_service, STATE_PATH)
             if state is not None:
-                if state != self.previous_gen_auto_current_state:
+                if initial_read:
+                    self.gen_auto_current_state = state
+                    self.previous_gen_auto_current_state = state
+                    logging.info(f"Initial 'Gen Auto Current' state: {self.gen_auto_current_state}")
+                elif state != self.previous_gen_auto_current_state:
+                    self.previous_gen_auto_current_state = self.gen_auto_current_state
                     self.gen_auto_current_state = state
                     logging.info(f"'Gen Auto Current' state changed to: {self.gen_auto_current_state}")
                 else:
-                    self.gen_auto_current_state = state
+                    self.gen_auto_current_state = state # Keep current state updated even if not logged
+                    logging.debug(f"'Gen Auto Current' state remains: {self.gen_auto_current_state}")
             else:
                 logging.debug("Could not retrieve 'Gen Auto Current' state from D-Bus.")
 
@@ -294,21 +314,6 @@ class GeneratorDeratingMonitor:
             rounded_output = round(derated_output_amps, 1)
             # END CORRECTION
 
-            # START CORRECTION - Enhanced Logging for Derating Results
-            logging.info(f"Calculated Derating Factor: {derating_factor:.2f}")
-            logging.info(f"Calculated Derated Output Amps (before rounding): {derated_output_amps:.2f}")
-            logging.info(f"Rounded Derated Output Amps: {rounded_output:.1f} Amps")
-            # END CORRECTION
-
-            # Set the AC Active Input Current Limit on VE.Bus when generator is running
-            if self.vebus_service and self._is_generator_running():
-                self._set_dbus_value(self.vebus_service, AC_ACTIVE_INPUT_CURRENT_LIMIT_PATH, rounded_output)
-                # START CORRECTION - Log level change
-                logging.info(f"Generator running, set VE.Bus AC Active Input Current Limit: {rounded_output:.1f} Amps")
-                # END CORRECTION
-            elif self.vebus_service:
-                logging.debug("Generator not running, VE.Bus AC Active Input Current Limit not actively adjusted by derating.")
-
             # Store the derated current limit in the settings path for the transfer switch
             # START CORRECTION - Refined logic and logging for settings update
             current_generator_limit_setting = self._get_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH)
@@ -317,7 +322,7 @@ class GeneratorDeratingMonitor:
                 self._set_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH, rounded_output)
                 logging.info(f"Initial Transfer Switch Generator Current Limit set to: {rounded_output:.1f} Amps (due to auto derating)")
                 self.initial_derated_output_logged = True
-            elif current_generator_limit_setting != rounded_output: # Only log if the value actually changes
+            elif current_generator_limit_setting is None or abs(current_generator_limit_setting - rounded_output) > 0.01: # Only log if the value actually changes significantly
                 self._set_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH, rounded_output)
                 logging.info(f"Transfer Switch Generator Current Limit updated to: {rounded_output:.1f} Amps (due to auto derating)")
             else:
@@ -329,11 +334,70 @@ class GeneratorDeratingMonitor:
             logging.warning("Not all temperature or altitude data available for derating. Skipping calculation.")
             # END CORRECTION
 
+    def _sync_generator_limit_to_ac_input(self):
+        if self.vebus_service and self._is_generator_running():
+            current_generator_limit_setting = self._get_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH)
+            if current_generator_limit_setting is not None:
+                rounded_gen_limit = round(float(current_generator_limit_setting), 1)
+
+                # Check if the generator limit has changed or if the AC input limit needs to be set initially
+                if self.previous_generator_current_limit_setting is None or abs(self.previous_generator_current_limit_setting - rounded_gen_limit) > 0.01:
+                    self._set_dbus_value(self.vebus_service, AC_ACTIVE_INPUT_CURRENT_LIMIT_PATH, rounded_gen_limit)
+                    logging.info(f"Generator running: Synced VE.Bus AC Active Input Current Limit to Generator Current Limit ({rounded_gen_limit:.1f} Amps).")
+                    self.previous_ac_current_limit = rounded_gen_limit # Keep previous_ac_current_limit in sync
+                    self.previous_generator_current_limit_setting = rounded_gen_limit # Update the previous generator limit setting
+                else:
+                    logging.debug(f"Generator running: VE.Bus AC Active Input Current Limit already matches Generator Current Limit ({rounded_gen_limit:.1f} Amps).")
+            else:
+                logging.warning("Could not retrieve Generator Current Limit setting. Cannot sync to AC input.")
+        elif self.vebus_service:
+            logging.debug("Generator not running, AC Active Input Current Limit not synced from generator current limit setting.")
+
+
+    def _sync_generator_limit_from_ac_input(self):
+        """
+        Synchronizes the generator current limit to the AC input limit
+        when the generator is running and 'Gen Auto Current' is off/disabled.
+        This helps prevent a looping problem by only reacting to external changes
+        in the AC input limit.
+        """
+        if self.vebus_service and self._is_generator_running() and self.gen_auto_current_state != 3:
+            current_ac_limit = self._get_dbus_value(self.vebus_service, AC_ACTIVE_INPUT_CURRENT_LIMIT_PATH)
+            if current_ac_limit is not None:
+                rounded_ac_limit = round(float(current_ac_limit), 1)
+
+                if self.previous_ac_current_limit is None or abs(rounded_ac_limit - self.previous_ac_current_limit) > 0.01:
+                    # Only set the generator current limit if it's different
+                    current_gen_limit = self._get_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH)
+                    if current_gen_limit is None or abs(current_gen_limit - rounded_ac_limit) > 0.01:
+                        self._set_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH, rounded_ac_limit)
+                        logging.info(f"Generator running and 'Gen Auto Current' is OFF/DISABLED: Synced Generator Current Limit to VE.Bus AC Active Input Current Limit ({rounded_ac_limit:.1f} Amps).")
+                        self.previous_generator_current_limit_setting = rounded_ac_limit # Keep previous gen limit in sync
+
+                    self.previous_ac_current_limit = rounded_ac_limit # Update the previous AC limit to prevent looping
+                else:
+                    logging.debug(f"Generator running and 'Gen Auto Current' is OFF/DISABLED: VE.Bus AC Active Input Current Limit ({rounded_ac_limit:.1f} Amps) has not changed.")
+            else:
+                logging.warning("Could not retrieve VE.Bus AC Active Input Current Limit. Cannot sync to generator current limit.")
+        elif self.vebus_service:
+            if not self._is_generator_running():
+                logging.debug("Generator not running, AC Active Input Current Limit not synced to generator current limit.")
+            elif self.gen_auto_current_state == 3:
+                logging.debug("'Gen Auto Current' is ON, AC Active Input Current Limit not synced to generator current limit.")
+
     def _periodic_monitoring(self):
+        #logging.info(">>>> _periodic_monitoring heartbeat <<<<") # Re-inserted (original line)
         self._update_outdoor_temperature()
         self._update_altitude()
         self._update_generator_temperature()
         self._update_gen_auto_current_state()
+
+        # Always attempt to sync the generator current limit to the AC input limit if the generator is running.
+        # This is the *original* sync behavior where the generator's limit sets the AC input limit.
+        self._sync_generator_limit_to_ac_input()
+
+        # New logic: Sync generator current limit FROM AC input limit when generator is running and Gen Auto Current is OFF/DISABLED.
+        self._sync_generator_limit_from_ac_input()
 
         # Perform derating only if Gen Auto Current is on (state 3)
         if self.gen_auto_current_state == 3:
