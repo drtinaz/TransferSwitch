@@ -9,7 +9,7 @@ from gi.repository import GLib
 LOG_FILE = "/data/GenAutoCurrent/log"
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 
-# Logging setup
+# Logging setup (change level of logging level=logging.INFO or level=logging.DEBUG)
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.info("Starting Generator Derating Monitor with file logging.")
 
@@ -67,6 +67,12 @@ class GeneratorDeratingMonitor:
         self.initial_outdoor_temp = None
         self.initial_generator_temp = None
 
+        # START CORRECTION
+        self.outdoor_temp_fahrenheit = DEFAULT_OUTDOOR_TEMP_F
+        self.altitude_feet = DEFAULT_ALTITUDE_FEET
+        self.generator_temp_fahrenheit = DEFAULT_GENERATOR_TEMP_F
+        # END CORRECTION
+        
         GLib.timeout_add_seconds(2, self._delayed_initialization)
 
     def _delayed_initialization(self):
@@ -283,26 +289,45 @@ class GeneratorDeratingMonitor:
             derating_factor = self.calculate_derating_factor(
                 self.outdoor_temp_fahrenheit, self.altitude_feet, self.generator_temp_fahrenheit
             )
+            # START CORRECTION
+            derated_output_amps = BASE_GENERATOR_OUTPUT_AMPS * derating_factor
             rounded_output = round(derated_output_amps, 1)
+            # END CORRECTION
+
+            # START CORRECTION - Enhanced Logging for Derating Results
+            logging.info(f"Calculated Derating Factor: {derating_factor:.2f}")
+            logging.info(f"Calculated Derated Output Amps (before rounding): {derated_output_amps:.2f}")
+            logging.info(f"Rounded Derated Output Amps: {rounded_output:.1f} Amps")
+            # END CORRECTION
 
             # Set the AC Active Input Current Limit on VE.Bus when generator is running
             if self.vebus_service and self._is_generator_running():
                 self._set_dbus_value(self.vebus_service, AC_ACTIVE_INPUT_CURRENT_LIMIT_PATH, rounded_output)
-                logging.debug(f"Generator running,set VE.Bus AC Active Input Current Limit: {rounded_output:.1f} Amps")
+                # START CORRECTION - Log level change
+                logging.info(f"Generator running, set VE.Bus AC Active Input Current Limit: {rounded_output:.1f} Amps")
+                # END CORRECTION
             elif self.vebus_service:
                 logging.debug("Generator not running, VE.Bus AC Active Input Current Limit not actively adjusted by derating.")
 
             # Store the derated current limit in the settings path for the transfer switch
+            # START CORRECTION - Refined logic and logging for settings update
+            current_generator_limit_setting = self._get_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH)
+
             if not self.initial_derated_output_logged:
                 self._set_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH, rounded_output)
-                logging.info(f"Initial Transfer Switch Generator Current Limit: {rounded_output:.1f} Amps")
-                logging.info(f"Initial Calculated Derated Generator Output: {rounded_output:.1f} Amps")
+                logging.info(f"Initial Transfer Switch Generator Current Limit set to: {rounded_output:.1f} Amps (due to auto derating)")
                 self.initial_derated_output_logged = True
+            elif current_generator_limit_setting != rounded_output: # Only log if the value actually changes
+                self._set_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH, rounded_output)
+                logging.info(f"Transfer Switch Generator Current Limit updated to: {rounded_output:.1f} Amps (due to auto derating)")
             else:
-                logging.debug(f"Calculated Derated Generator Output: {rounded_output:.1f} Amps (value might have changed)")
+                logging.debug(f"Transfer Switch Generator Current Limit remains: {rounded_output:.1f} Amps")
+            # END CORRECTION
 
         else:
-            logging.debug("Not all temperature or altitude data available for derating.")
+            # START CORRECTION - Log level change
+            logging.warning("Not all temperature or altitude data available for derating. Skipping calculation.")
+            # END CORRECTION
 
     def _periodic_monitoring(self):
         self._update_outdoor_temperature()
@@ -313,6 +338,10 @@ class GeneratorDeratingMonitor:
         # Perform derating only if Gen Auto Current is on (state 3)
         if self.gen_auto_current_state == 3:
             self._perform_derating()
+        # START CORRECTION
+        else:
+            logging.debug(f"Gen Auto Current state is not 3. Current state: {self.gen_auto_current_state}")
+        # END CORRECTION
 
         return True
 
