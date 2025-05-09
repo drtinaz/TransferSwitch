@@ -6,3 +6,6 @@ v1.1
 	fix indentation error in script
 v1.2
 	bug fix
+**	beta v0.1.1
+		several logging changes to reduce the frequency of log entries.
+		several enhancements to the core functionality.
