@@ -1,10 +1,4 @@
 #!/bin/bash
-# create log file
-# touch /data/GenAutoCurrent/log
-# chmod 666 /data/GenAutoCurrent/log
-# chmod +x /data/GenAutoCurrent/services/auto_current/run
-# chmod +x /data/GenAutoCurrent/services/auto_current/log/run
-# chmod 777 /data/GenAutoCurrent/auto_current.py
 
 packageLogFile="/data/ATSMonitor/log"
 

@@ -35,20 +35,53 @@ GENERATOR_CURRENT_LIMIT_PATH = "/Settings/TransferSwitch/GeneratorCurrentLimit"
 GENERATOR_ON_VALUE = 12
 SHORE_POWER_ON_VALUE = 13
 
+########################################################
+############ USER CONFIGURABLE SETTINGS ################
+########################################################
+
 # Derating Constants
+
+# Ambient temperature in F above which the temperature derate begins. This should not be changed in most cases.
 BASE_TEMPERATURE_THRESHOLD_F = 77.0
+
+# This is the derating amount for the ambient temperature, for every 1 degree F above the base temperature threshold
 TEMP_COEFFICIENT = 0.006
+
+# This is the derating amount per foot above sea level. For example, if you generator derates @ 3% for every 1000 feet
+# above sea level, you would divide 0.03 by 1000
 ALTITUDE_COEFFICIENT = 0.00003
+
+# this is the rated capacity of the generator
 BASE_GENERATOR_OUTPUT_AMPS = 62.5
+
+# this prevents the generator from operating at maximum capacity. any derating calculations are performed first,
+# then the result is multiplied by this factor.
 OUTPUT_BUFFER = 0.9
+
+# this is the generator temp in F at which the high gen temp reduction is included in the derate calculation
 HIGH_GENTEMP_THRESHOLD_F = 222.0
+
+# this is the generator temp in F at which the medium gen temp reduction is included in the derate calculation
 MEDIUM_GENTEMP_THRESHOLD_F = 215.0
+
+# this is the reduction multiplier for the high gen temp derate
 HIGH_GENTEMP_REDUCTION = 0.86
+
+# this is the reduction multiplier for the medium gen temp derate
 MEDIUM_GENTEMP_REDUCTION = 0.93
 
+# this is the default value used if the altitude sensor becomes unavailable
 DEFAULT_ALTITUDE_FEET = 1000.0
+
+# this is the default value used if the gen temp sensor becomes unavailable
 DEFAULT_GENERATOR_TEMP_F = 180.0
+
+# this is the default value used if the ambient temp sensor becomes unavailable
 DEFAULT_OUTDOOR_TEMP_F = 77.0
+
+#################################################
+####### END OF USER CONFIGURABLE SETTINGS #######
+#################################################
 
 class GeneratorDeratingMonitor:
     def __init__(self):
@@ -61,19 +94,16 @@ class GeneratorDeratingMonitor:
         self.settings_service_name = SETTINGS_SERVICE_NAME
         self.gen_auto_current_service = None
         self.gen_auto_current_state = None
-        self.previous_gen_auto_current_state = None # Initialize here
+        self.previous_gen_auto_current_state = None
         self.initial_derated_output_logged = False
         self.initial_altitude = None
         self.initial_outdoor_temp = None
         self.initial_generator_temp = None
-        self.previous_ac_current_limit = None # New variable to store the previously set AC current limit
-        self.previous_generator_current_limit_setting = None # Track changes in the generator current limit setting
-
-        # START CORRECTION
+        self.previous_ac_current_limit = None
+        self.previous_generator_current_limit_setting = None
         self.outdoor_temp_fahrenheit = DEFAULT_OUTDOOR_TEMP_F
         self.altitude_feet = DEFAULT_ALTITUDE_FEET
         self.generator_temp_fahrenheit = DEFAULT_GENERATOR_TEMP_F
-        # END CORRECTION
         
         GLib.timeout_add_seconds(2, self._delayed_initialization)
 
@@ -134,8 +164,7 @@ class GeneratorDeratingMonitor:
             obj = self.bus.get_object(service_name, path)
             interface = dbus.Interface(obj, BUS_ITEM_INTERFACE)
             interface.SetValue(dbus.Double(value))
-            # This is the original log that you want to conditionally keep
-            # logging.info(f"Set {service_name}{path} to {value}") # Re-inserted
+
         except Exception as e:
             logging.error(f"Error setting value for {service_name}{path} to {value}: {e}")
 
@@ -309,13 +338,11 @@ class GeneratorDeratingMonitor:
             derating_factor = self.calculate_derating_factor(
                 self.outdoor_temp_fahrenheit, self.altitude_feet, self.generator_temp_fahrenheit
             )
-            # START CORRECTION
             derated_output_amps = BASE_GENERATOR_OUTPUT_AMPS * derating_factor
             rounded_output = round(derated_output_amps, 1)
-            # END CORRECTION
+
 
             # Store the derated current limit in the settings path for the transfer switch
-            # START CORRECTION - Refined logic and logging for settings update
             current_generator_limit_setting = self._get_dbus_value(self.settings_service_name, GENERATOR_CURRENT_LIMIT_PATH)
 
             if not self.initial_derated_output_logged:
@@ -327,12 +354,10 @@ class GeneratorDeratingMonitor:
                 logging.info(f"Transfer Switch Generator Current Limit updated to: {rounded_output:.1f} Amps (due to auto derating)")
             else:
                 logging.debug(f"Transfer Switch Generator Current Limit remains: {rounded_output:.1f} Amps")
-            # END CORRECTION
 
         else:
-            # START CORRECTION - Log level change
+
             logging.warning("Not all temperature or altitude data available for derating. Skipping calculation.")
-            # END CORRECTION
 
     def _sync_generator_limit_to_ac_input(self):
         if self.vebus_service and self._is_generator_running():
@@ -386,7 +411,6 @@ class GeneratorDeratingMonitor:
                 logging.debug("'Gen Auto Current' is ON, AC Active Input Current Limit not synced to generator current limit.")
 
     def _periodic_monitoring(self):
-        #logging.info(">>>> _periodic_monitoring heartbeat <<<<") # Re-inserted (original line)
         self._update_outdoor_temperature()
         self._update_altitude()
         self._update_generator_temperature()
@@ -402,10 +426,8 @@ class GeneratorDeratingMonitor:
         # Perform derating only if Gen Auto Current is on (state 3)
         if self.gen_auto_current_state == 3:
             self._perform_derating()
-        # START CORRECTION
         else:
             logging.debug(f"Gen Auto Current state is not 3. Current state: {self.gen_auto_current_state}")
-        # END CORRECTION
 
         return True
 

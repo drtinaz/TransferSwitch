@@ -6,6 +6,7 @@ v1.1
 	fix indentation error in script
 v1.2
 	bug fix
-**	beta v0.1.1
-		several logging changes to reduce the frequency of log entries.
-		several enhancements to the core functionality.
+v1.3
+	several logging changes to reduce the frequency of log entries.
+	several enhancements to the core functionality.
+	cleaned up the code a bit and added comments to the user configurable settings block for clarity
