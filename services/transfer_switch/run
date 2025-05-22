@@ -1,4 +1,4 @@
 #!/bin/sh
 echo "*** starting GenAutoCurrent ***"
 exec 2>&1
-exec /data/GenAutoCurrent/auto_current.py
+exec /data/TransferSwitch/transfer_switch.py

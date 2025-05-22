@@ -1,6 +1,6 @@
 #!/bin/bash
 
-packageLogFile="/data/ATSMonitor/log"
+packageLogFile="/data/TransferSwitch/log"
 
 # everything done in HelperResources which never returns here !!!
 
