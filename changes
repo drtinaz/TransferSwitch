@@ -10,3 +10,7 @@ v1.3
 	several logging changes to reduce the frequency of log entries.
 	several enhancements to the core functionality.
 	cleaned up the code a bit and added comments to the user configurable settings block for clarity
+v1.4
+	added wrap_dbus_value and inserted path to victron libraries for ve_utils
+	added functionality so this script can be used not only with kevins guimods transfer switch,
+	but also any other script that uses a bilge pump on/off digital input for the transfer switch state
