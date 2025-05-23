@@ -11,13 +11,14 @@
 #    the Multiplus settings between these two stored values
 # When the user changes the settings, the grid or generator-specific Settings are updated
 #
-# In order to function, one of the digital inputs must be set to Bilge Pump and the custom name changed to 'Transfer Switch'
+# In order to function, one of the digital inputs must be set to Bilge Pump (NOT bilge alarm) and the custom name changed to 'Transfer Switch'
 # This input should be connected to a contact closure on the external transfer switch to indicate
 #    which of it's sources is switched to its output
 #
 # For Quattro, the /Settings/TransferSwitch/TransferSwitchOnAc2 tells this program where the transfer switch is connected:
 #    0 if connected to AC 1 In
 #    1 if connected to AC 2 In
+# credit given to Kevin Windrem for the original package, from which this package is based upon.
 
 import platform
 import argparse
