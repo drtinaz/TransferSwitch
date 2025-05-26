@@ -381,7 +381,7 @@ def main():
     DBusGMainLoop(set_as_default=True)
 
     # Logging start message without version
-    logging.info (">>>>>>>>>>>>>>>> ExtTransferSwitch starting <<<<<<<<<<<<<<<<")
+    logging.info (">>>>>>>>>>>>>>>> Transfer Switch Monitor starting <<<<<<<<<<<<<<<<")
 
     Monitor ()
 
