@@ -1,4 +1,4 @@
 #!/bin/sh
-echo "*** starting GenAutoCurrent ***"
+echo "*** starting Transfer Switch Monitor ***"
 exec 2>&1
 exec /data/TransferSwitch/transfer_switch.py
