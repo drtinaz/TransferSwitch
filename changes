@@ -2,3 +2,5 @@ v1.0
 	initial release
 v1.1
 	fix file permissions
+v1.2
+	fix typo in service exec
