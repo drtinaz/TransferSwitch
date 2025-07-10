@@ -168,21 +168,25 @@ class Monitor:
         # search for a new one only every 10 seconds to avoid unnecessary processing
         elif not inputValid and self.tsInputSearchDelay >= 10:
             newInputService = ""
+            custom_name = "" # Initialize custom_name here for scope
+            found = False # Flag to indicate if a service was found
             for service in self.theBus.list_names():
                 # found a digital input service, now check for custom name and valid state
                 if service.startswith ("com.victronenergy.digitalinput"):
                     try:
                         name_obj = self.theBus.get_object(service, '/CustomName')
-                        custom_name = name_obj.GetValue()
-                        if self.extTransferDigInputName.lower() in custom_name.lower():
+                        custom_name_val = name_obj.GetValue() # Use a temporary variable
+                        if self.extTransferDigInputName.lower() in custom_name_val.lower():
                             state_obj = self.theBus.get_object (service, '/State')
                             state = state_obj.GetValue()
                             # found it! Check for new state values
                             if state in (12, 3) or state in (13, 2):
                                 newInputService = service
+                                custom_name = custom_name_val # Assign to the outer custom_name
                                 self.transferSwitchNameObj = name_obj # Store the name object
                                 self.transferSwitchStateObj = state_obj # Store the state object
-                                break
+                                found = True
+                                break # Exit loop once found
                     # ignore errors - continue to check for other services
                     except dbus.exceptions.DBusException as e:
                         # This typically means /CustomName or /State doesn't exist for this service
@@ -192,13 +196,20 @@ class Monitor:
                         logging.error("An unexpected error occurred while searching for digital inputs: %s", e)
 
 
-            # found new service - set up to use its values
-            if newInputService != "":
+            # Process search results
+            if found:
                 logging.info ("discovered transfer switch digital input service at %s with custom name '%s'", newInputService, custom_name)
                 self.transferSwitchActive = True
-            elif self.transferSwitchActive: # This case should ideally not be hit if newInputService is "" but transferSwitchActive is True
-                logging.info ("Transfer switch digital input service NOT found with matching name")
-                self.transferSwitchActive = False
+                self.firstSearchDone = True # Mark that a switch has been found
+            else:
+                # Log if it was previously active and is no longer found
+                if self.transferSwitchActive:
+                    logging.info ("Transfer switch digital input service NOT found with matching name")
+                    self.transferSwitchActive = False
+                # Log a message on the first search attempt if nothing is found
+                elif not self.firstSearchDone:
+                    logging.warning("No transfer switch digital input found with a custom name matching 'transfer switch'")
+                    self.firstSearchDone = True # Ensure this message is only logged once
 
         if self.transferSwitchActive:
             self.tsInputSearchDelay = 0
@@ -325,6 +336,7 @@ class Monitor:
         self.dbusOk = False
         self.transferSwitchLocation = 0
         self.tsInputSearchDelay = 99 # allow search to occur immediately
+        self.firstSearchDone = False # New attribute to track the initial search status
 
         # create / attach local settings
         settingsList = {
