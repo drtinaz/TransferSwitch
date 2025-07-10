@@ -65,17 +65,28 @@ class Monitor:
         try:
             obj = self.theBus.get_object (dbusSystemPath, '/VebusService')
             vebusService = obj.GetText ()
-        except:
-            if self.dbusOk:
-                logging.info ("Multi/Quattro disappeared - /VebusService invalid")
+        except dbus.exceptions.DBusException as e: # Catch specific D-Bus exceptions
+            if self.dbusOk: # Logs if it disappeared
+                logging.info ("Multi/Quattro disappeared - /VebusService invalid: %s", e)
+            elif not self.veBusFoundInitially: # Logs if never found initially
+                logging.warning ("Multi/Quattro (VE.Bus) service not found on startup: %s", e)
+            self.veBusService = ""
+            self.dbusOk = False
+            self.numberOfAcInputs = 0
+            self.acInputTypeObj = None
+        except Exception as e: # Catch any other unexpected errors
+            logging.error("An unexpected error occurred while looking for VE.Bus service: %s", e)
             self.veBusService = ""
             self.dbusOk = False
             self.numberOfAcInputs = 0
             self.acInputTypeObj = None
 
+
         if vebusService == "---":
-            if self.veBusService != "":
+            if self.veBusService != "": # Logs if it disappeared
                 logging.info ("Multi/Quattro disappeared")
+            elif not self.veBusFoundInitially: # Logs if never found initially (e.g., /VebusService exists but returns "---")
+                logging.warning("Multi/Quattro (VE.Bus) service not found on startup (returned '---')")
             self.veBusService = ""
             self.dbusOk = False
             self.numberOfAcInputs = 0
@@ -83,28 +94,52 @@ class Monitor:
             self.veBusService = vebusService
             try:
                 self.numberOfAcInputs = self.theBus.get_object (vebusService, "/Ac/NumberOfAcInputs").GetValue ()
-            except:
+                # Set flag to true if discovery successful
+                self.veBusFoundInitially = True
+            except dbus.exceptions.DBusException as e:
+                logging.error("Failed to get /Ac/NumberOfAcInputs for %s: %s", vebusService, e)
                 self.numberOfAcInputs = 0
+                self.veBusFoundInitially = False # Reset if subsequent obj fails
+            except Exception as e:
+                logging.error("An unexpected error occurred getting number of AC inputs: %s", e)
+                self.numberOfAcInputs = 0
+                self.veBusFoundInitially = False
+
             try:
                 self.remoteGeneratorSelectedItem = self.theBus.get_object (vebusService,
                     "/Ac/Control/RemoteGeneratorSelected")
-            except:
+            except dbus.exceptions.DBusException as e:
+                logging.error("Failed to get /Ac/Control/RemoteGeneratorSelected for %s: %s", vebusService, e)
+                self.remoteGeneratorSelectedItem = None
+                self.remoteGeneratorSelectedLocalValue = -1
+            except Exception as e:
+                logging.error("An unexpected error occurred getting remote generator selected: %s", e)
                 self.remoteGeneratorSelectedItem = None
                 self.remoteGeneratorSelectedLocalValue = -1
 
+
             if self.numberOfAcInputs == 0:
                 self.dbusOk = False
+                if self.veBusFoundInitially: # If it was found but inputs couldn't be read
+                    logging.error("VE.Bus service found but no AC inputs or other critical objects. Multi/Quattro might be misconfigured or starting up.")
+                self.veBusFoundInitially = False # Reset if initial object discovery failed
             elif self.numberOfAcInputs == 2:
                 logging.info ("discovered Quattro at " + vebusService)
             elif self.numberOfAcInputs == 1:
-                logging.info ("discovered Multi at " + vebusService)            
+                logging.info ("discovered Multi at " + vebusService)
 
             try:
                 self.currentLimitObj = self.theBus.get_object (vebusService, "/Ac/ActiveIn/CurrentLimit")
                 self.currentLimitIsAdjustableObj = self.theBus.get_object (vebusService, "/Ac/ActiveIn/CurrentLimitIsAdjustable")
-            except:
-                logging.error ("current limit dbus setup failed - changes can't be made")
+            except dbus.exceptions.DBusException as e:
+                logging.error ("current limit dbus setup failed - changes can't be made: %s", e)
                 self.dbusOk = False
+                self.veBusFoundInitially = False # Reset if this critical object fails
+            except Exception as e:
+                logging.error("An unexpected error occurred setting up current limit objects: %s", e)
+                self.dbusOk = False
+                self.veBusFoundInitially = False
+
 
         # check to see where the transfer switch is connected
         if self.numberOfAcInputs == 0:
@@ -114,7 +149,7 @@ class Monitor:
         elif self.DbusSettings['transferSwitchOnAc2'] == 1:
             transferSwitchLocation = 2
         else:
-            transferSwitchLocation = 1        
+            transferSwitchLocation = 1
 
         # if changed, trigger refresh of object pointers
         if transferSwitchLocation != self.transferSwitchLocation:
@@ -127,9 +162,12 @@ class Monitor:
                 else:
                     self.acInputTypeObj = self.theBus.get_object (dbusSettingsPath, "/Settings/SystemSetup/AcInput1")
                 self.dbusOk = True
-            except:
+            except dbus.exceptions.DBusException as e:
                 self.dbusOk = False
-                logging.error ("AC input dbus setup failed - changes can't be made")
+                logging.error ("AC input dbus setup failed - changes can't be made: %s", e)
+            except Exception as e:
+                self.dbusOk = False
+                logging.error("An unexpected error occurred setting up AC input objects: %s", e)
 
 
     def updateTransferSwitchState (self):
@@ -337,6 +375,7 @@ class Monitor:
         self.transferSwitchLocation = 0
         self.tsInputSearchDelay = 99 # allow search to occur immediately
         self.firstSearchDone = False # New attribute to track the initial search status
+        self.veBusFoundInitially = False
 
         # create / attach local settings
         settingsList = {
