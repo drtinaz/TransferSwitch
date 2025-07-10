@@ -60,6 +60,9 @@ class Monitor:
             self.acInputTypeObj = None
             self.veBusService = ""
             self.transferSwitchLocation = 0
+            # Reset initial found status if transfer switch is not active, assuming no multi/quattro is relevant without it
+            self.veBusFoundInitially = False
+            self.loggedVeBusInitialNotFound = False
             return
 
         try:
@@ -68,14 +71,19 @@ class Monitor:
         except dbus.exceptions.DBusException as e: # Catch specific D-Bus exceptions
             if self.dbusOk: # Logs if it disappeared
                 logging.info ("Multi/Quattro disappeared - /VebusService invalid: %s", e)
-            elif not self.veBusFoundInitially: # Logs if never found initially
+            elif not self.veBusFoundInitially and not self.loggedVeBusInitialNotFound: # Logs only once if never found initially
                 logging.warning ("Multi/Quattro (VE.Bus) service not found on startup: %s", e)
+                self.loggedVeBusInitialNotFound = True # Mark as logged
             self.veBusService = ""
             self.dbusOk = False
             self.numberOfAcInputs = 0
             self.acInputTypeObj = None
         except Exception as e: # Catch any other unexpected errors
-            logging.error("An unexpected error occurred while looking for VE.Bus service: %s", e)
+            if not self.veBusFoundInitially and not self.loggedVeBusInitialNotFound:
+                logging.warning("Multi/Quattro (VE.Bus) service not found on startup (unexpected error): %s", e)
+                self.loggedVeBusInitialNotFound = True
+            else:
+                logging.error("An unexpected error occurred while looking for VE.Bus service: %s", e)
             self.veBusService = ""
             self.dbusOk = False
             self.numberOfAcInputs = 0
@@ -85,8 +93,9 @@ class Monitor:
         if vebusService == "---":
             if self.veBusService != "": # Logs if it disappeared
                 logging.info ("Multi/Quattro disappeared")
-            elif not self.veBusFoundInitially: # Logs if never found initially (e.g., /VebusService exists but returns "---")
+            elif not self.veBusFoundInitially and not self.loggedVeBusInitialNotFound: # Logs only once if never found initially
                 logging.warning("Multi/Quattro (VE.Bus) service not found on startup (returned '---')")
+                self.loggedVeBusInitialNotFound = True # Mark as logged
             self.veBusService = ""
             self.dbusOk = False
             self.numberOfAcInputs = 0
@@ -94,8 +103,9 @@ class Monitor:
             self.veBusService = vebusService
             try:
                 self.numberOfAcInputs = self.theBus.get_object (vebusService, "/Ac/NumberOfAcInputs").GetValue ()
-                # Set flag to true if discovery successful
+                # Set flag to true if discovery successful, and reset initial not found log flag
                 self.veBusFoundInitially = True
+                self.loggedVeBusInitialNotFound = False # Reset if service is now found
             except dbus.exceptions.DBusException as e:
                 logging.error("Failed to get /Ac/NumberOfAcInputs for %s: %s", vebusService, e)
                 self.numberOfAcInputs = 0
@@ -376,6 +386,7 @@ class Monitor:
         self.tsInputSearchDelay = 99 # allow search to occur immediately
         self.firstSearchDone = False # New attribute to track the initial search status
         self.veBusFoundInitially = False
+        self.loggedVeBusInitialNotFound = False
 
         # create / attach local settings
         settingsList = {
