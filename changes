@@ -6,3 +6,7 @@ v1.2
 	fix typo in service exec
 v1.3
 	fix error in service logging
+v1.4
+	add error logging when transfer switch input is never found at startup
+	add error logging when vebus is not found at startup
+	fix log flooding
