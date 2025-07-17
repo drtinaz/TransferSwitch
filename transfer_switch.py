@@ -413,31 +413,8 @@ def main():
 
     from dbus.mainloop.glib import DBusGMainLoop
 
-    # Define the log file path and directory
-    log_file_path = '/data/TransferSwitch/log'
-    log_dir = os.path.dirname(log_file_path)
-
-    # Ensure the log directory exists
-    if not os.path.exists(log_dir):
-        try:
-            os.makedirs(log_dir)
-        except OSError as e:
-            # Fallback to console logging if directory creation fails
-            logging.basicConfig(level=logging.INFO)
-            logging.error(f"Failed to create log directory {log_dir}: {e}. Logging to console.")
-            # Continue to main logic, but logging will be to console
-            pass # continue to main logic, but logging will be to console
-
-    # Configure logging to a file, or if dir creation failed, it's already set to console
-    if not logging.getLogger().handlers: # Only configure if no handlers are already set (e.g. from fallback)
-        try:
-            logging.basicConfig(level=logging.INFO, filename=log_file_path, filemode='a',
-                                format='%(asctime)s - %(levelname)s - %(message)s')
-        except Exception as e:
-            # Fallback to console logging if file logging setup fails
-            logging.basicConfig(level=logging.INFO)
-            logging.error(f"Failed to set up file logging to {log_file_path}: {e}. Logging to console.")
-
+    # Configure logging to console only with default format
+    logging.basicConfig(level=logging.INFO)
 
     # Have a mainloop, so we can send/receive asynchronous calls to and from dbus
     DBusGMainLoop(set_as_default=True)
