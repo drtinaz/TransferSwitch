@@ -10,3 +10,5 @@ v1.4
 	add error logging when transfer switch input is never found at startup
 	add error logging when vebus is not found at startup
 	fix log flooding
+v1.5
+	redirect logging to /var/log/transfer_switch
